@@ -49,7 +49,16 @@ def update(drone):
     # image, MIN_AREA), which keeps only square-ish (gate-shaped) contours; it returns None
     # when there is no gate -> return False. Otherwise find the contour's bounding box and
     # print it. Advance _timer and finish at HOVER_TIME.
-
+    _timer += drone.get_delta_time()
+    img = drone.camera.get_color_image()
+    largest = neo_lab.largest_cyan_gate(img, MIN_AREA)
+    if largest is None:
+        return False
+    x,y,w,h = cv2.boundingRect(largest)
+    if _timer >= HOVER_TIME:
+        print(x, y ,w , h)
+        _done = True
+        
     ###### END PUT CODE HERE #########
     ##################################
     return _done

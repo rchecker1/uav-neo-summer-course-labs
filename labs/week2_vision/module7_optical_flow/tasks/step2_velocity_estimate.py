@@ -57,6 +57,42 @@ def update(drone):
     global _prev_gray, _prev_pts, _timer, _interval, _frame, _done
     if _done:
         return True
+    dt = drone.get_delta_time()
+    _frame += 1
+    _timer += dt
+    _interval += dt
+    
+    drone.flight.send_pcmd(PROBE_PITCH,0,0,0)
+    if _frame % SKIP == 0:
+        img = drone.camera.get_downward_image()
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if _prev_gray is None or _prev_pts is None or len(_prev_pts) < MIN_PTS:
+            _prev_pts = cv2.goodFeaturesToTrack(gray, **FEATURE_PARAMS)
+            _prev_gray = gray
+        else:
+            newpts, stat, err = cv2.calcOpticalFlowPyrLK(_prev_gray, gray, _prev_pts, None, **LK_PARAMS)
+            if newpts is not None and stat is not None:
+                keep = stat.flatten() == 1
+                goodnew = newpts[keep].reshape(-1,2)
+                goodold = _prev_pts[keep].reshape(-1,2)
+                if len(goodnew) > 0:
+                    disp = goodnew - goodold
+                    _last_mag = float(np.mean(np.sqrt(disp[:, 0] ** 2 + disp[:, 1] ** 2)))
+                    dx = float(disp[:,0].mean())
+                    dy = float(disp[:,1].mean())
+                    height = neo_lab.height(drone)
+                    mpp = 2 * height * HFOV_TAN / IMAGE_WIDTH
+                    est = (-dx * mpp / _interval, -dy * mpp/_interval)
+                    vx,vy,vz = drone.physics.get_linear_velocity()
+                    _true = (float(vx), float(vz))
+                _prev_pts = goodnew.reshape(-1,1,2)
+            _prev_gray = gray
+            _interval = 0
+        if _timer >= RUN_TIME:
+            drone.flight.stop()
+            print(f"[Step 2] flow est (x,z)=({est[0]:.2f},{est[1]:.2f})  "
+                f"true (x,z)=({_true[0]:.2f},{_true[1]:.2f}) m/s")
+            _done = True
     ##################################
     #### START PUT CODE HERE #########
 

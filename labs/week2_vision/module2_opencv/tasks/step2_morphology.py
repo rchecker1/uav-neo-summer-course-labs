@@ -48,7 +48,19 @@ def update(drone):
     # binary mask like Step 1, then open it with a KERNEL_SIZE square kernel and compare
     # the white-pixel count before and after to see what was removed. Advance _timer and
     # finish once it reaches HOVER_TIME. See the README (Key terms) for morphology.
-
+    _timer += drone.get_delta_time()
+    img = drone.camera.get_downward_image()
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
+    ones  = np.ones((KERNEL_SIZE, KERNEL_SIZE))
+    eroded = cv2.erode(mask,ones, iterations = 1)
+    opened = cv2.dilate(eroded, ones, iterations = 1)
+    before = np.count_nonzero(mask)
+    after = np.count_nonzero(opened)
+    if(_timer >= HOVER_TIME):
+        print(f"{before - after} pix removed"
+              f"{before} --> {after}")
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done

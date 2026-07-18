@@ -42,14 +42,25 @@ def update(drone):
     drone.flight.stop()   # hover in place
     ##################################
     #### START PUT CODE HERE #########
-
+    _timer += drone.get_delta_time()
     # GOAL: report the average edge strength in the downward image.
     #
     # Grayscale the image, blur it with a KERNEL_SIZE box filter so single-pixel noise
     # does not dominate, then use a Sobel filter (across and down) to measure how fast
     # brightness changes and combine the two directions into one edge magnitude. Print the
     # mean magnitude. Advance _timer and finish at HOVER_TIME. See the README (Key terms).
-
+    img = drone.camera.get_downward_image()
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blur = cv2.blur(gray, (KERNEL_SIZE, KERNEL_SIZE))
+    sx = cv2.Sobel(blur, cv2.CV_64F, 1,0,ksize=3)
+    sy = cv2.Sobel(blur, cv2.CV_64F, 0,1,ksize=3)
+    magnitude = np.sqrt(sx* sx + sy * sy)
+    if(_timer >= HOVER_TIME):
+        print(f"magnitude: {magnitude.mean()}")
+        
+        _done = True
+    else:
+        _done = False
     ###### END PUT CODE HERE #########
     ##################################
     return _done

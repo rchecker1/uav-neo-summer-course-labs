@@ -41,6 +41,7 @@ def update(drone):
     if _done:
         return True
     drone.flight.stop()   # hover in place
+    _timer += drone.get_delta_time()
     ##################################
     #### START PUT CODE HERE #########
 
@@ -48,7 +49,15 @@ def update(drone):
     # neo_lab.largest_cyan_gate(image, MIN_AREA) (None when no gate -> return False), take
     # the contour's bounding-box width, and print it. Advance _timer and finish at
     # HOVER_TIME.
-
+    img = drone.camera.get_color_image()
+    largest = neo_lab.largest_cyan_gate(img, MIN_AREA)
+    if largest is None:
+        return False
+    x,y,w,h = cv2.boundingRect(largest)
+    
+    if _timer >= HOVER_TIME:
+        print(w)
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done

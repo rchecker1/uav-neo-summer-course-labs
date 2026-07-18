@@ -40,6 +40,7 @@ def update(drone):
     if _done:
         return True
     drone.flight.stop()   # hover in place
+    _timer += drone.get_delta_time()
     ##################################
     #### START PUT CODE HERE #########
 
@@ -47,7 +48,13 @@ def update(drone):
     # grayscale, and threshold at THRESHOLD_VALUE to make a binary mask. Report the
     # fraction of white pixels. Advance _timer and finish (_done) once it reaches
     # HOVER_TIME. See the README (Key terms) for thresholding.
-
+    img = drone.camera.get_downward_image()
+    grayimg = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(grayimg, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
+    white = cv2.countNonZero(binary)
+    if _timer > HOVER_TIME:
+        print(f"thresh: {THRESHOLD_VALUE}", f"white: {white}")
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done

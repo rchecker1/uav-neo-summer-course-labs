@@ -195,7 +195,7 @@ class Launcher:
     Throttle is a velocity command, so the proportional gain is intentionally small.
     """
 
-    def __init__(self, target_height=3.0, kp=0.2, throttle_limit=0.5,
+    def __init__(self, target_height=1.0, kp=0.2, throttle_limit=0.5,
                  tol=0.4, arm_time=1.5, settle=1.0):
         self.target_height = target_height
         self.kp = kp

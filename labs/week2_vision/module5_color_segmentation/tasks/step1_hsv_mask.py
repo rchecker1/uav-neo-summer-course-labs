@@ -42,6 +42,7 @@ def update(drone):
     if _done:
         return True
     drone.flight.stop()   # hover in place
+    _timer += drone.get_delta_time()
     ##################################
     #### START PUT CODE HERE #########
 
@@ -49,9 +50,15 @@ def update(drone):
     # the gates: convert the forward color image to HSV and build a mask from that range.
     # Report the fraction of masked pixels. Advance _timer and finish at HOVER_TIME.
     # See the README (Key terms) for HSV masking.
-
+    image = drone.camera.get_color_image()
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, LOWER, UPPER)
+    coverage = np.count_nonzero(mask)/ mask.size
     ###### END PUT CODE HERE #########
     ##################################
+    if(_timer) >= HOVER_TIME:
+        print(coverage)
+        _done = True
     return _done
 
 

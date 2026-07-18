@@ -57,6 +57,31 @@ def update(drone):
     global _prev_gray, _prev_pts, _timer, _frame, _last_mag, _done
     if _done:
         return True
+    _timer += drone.get_delta_time()
+    _frame += 1
+    drone.flight.send_pcmd(PROBE_PITCH,0,0,0)
+    if _frame % SKIP == 0:
+        img = drone.camera.get_downward_image()
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if _prev_gray is None or _prev_pts is None or len(_prev_pts) < MIN_PTS:
+            _prev_pts = cv2.goodFeaturesToTrack(gray, **FEATURE_PARAMS)
+            _prev_gray = gray
+        else:
+            newpts, stat, err = cv2.calcOpticalFlowPyrLK(_prev_gray, gray, _prev_pts, None, **LK_PARAMS)
+            if newpts is not None and stat is not None:
+                keep = stat.flatten() == 1
+                goodnew = newpts[keep].reshape(-1,2)
+                goodold = _prev_pts[keep].reshape(-1,2)
+                if len(goodnew) > 0:
+                    disp = goodnew - goodold
+                    _last_mag = float(np.mean(np.sqrt(disp[:, 0] ** 2 + disp[:, 1] ** 2)))
+                _prev_pts = goodnew.reshape(-1,1,2)
+            _prev_gray = gray
+        if _timer >= HOVER_TIME:
+            drone.flight.stop()
+            print(_last_mag)
+            _done = True
+                
     ##################################
     #### START PUT CODE HERE #########
 

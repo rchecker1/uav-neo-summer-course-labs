@@ -41,6 +41,7 @@ def update(drone):
     if _done:
         return True
     drone.flight.stop()   # hover in place
+    _timer += drone.get_delta_time()
     ##################################
     #### START PUT CODE HERE #########
 
@@ -48,7 +49,15 @@ def update(drone):
     # MIN_AREA); if it returns None nothing is bright enough yet -> return False. Otherwise
     # report its center and area (see uav_utils for contour helpers). Advance _timer and
     # finish at HOVER_TIME.
-
+    img = drone.camera.get_downward_image()
+    largest = neo_lab.largest_bright_contour(img,V_MIN,MIN_AREA)
+    if largest is None:
+        return False
+    center = uav_utils.get_contour_center(largest)
+    area = uav_utils.get_contour_area(largest)
+    if _timer >= HOVER_TIME:
+        print(f"{center[0]},{center[1]} and {area}")
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done

@@ -25,7 +25,7 @@ import neo_lab
 V_MIN = 200
 MIN_AREA = 300
 MAX_TILT = 0.18      # pitch/roll authority
-CENTER_TOL = 60      # pixels considered 'centered'
+CENTER_TOL = 10      # pixels considered 'centered'
 HOLD_TIME = 2.0      # seconds to stay centered before done
 ROW_CENTER = 240
 COL_CENTER = 320
@@ -59,7 +59,24 @@ def update(drone):
     # MAX_TILT. Which sign centers the drone depends on how the camera is mounted --
     # pick a sign, watch which way it runs, and flip it if it diverges. With no gate
     # in view, hold position and reset your centered timer.
-
+    img = drone.camera.get_downward_image()
+    largest = neo_lab.largest_bright_contour(img,V_MIN,MIN_AREA)
+    if largest is None:
+        return False
+    row,col = uav_utils.get_contour_center(largest)
+    er = row - ROW_CENTER
+    ec = col - COL_CENTER
+    roll = uav_utils.clamp(ec / COL_CENTER * MAX_TILT, -MAX_TILT, MAX_TILT)
+    pitch = uav_utils.clamp(-er / ROW_CENTER * MAX_TILT, -MAX_TILT, MAX_TILT)
+    drone.flight.send_pcmd(pitch, roll, 0, 0)
+    if abs(ec) < CENTER_TOL and abs(er) < CENTER_TOL:
+        _hold += drone.get_delta_time()
+    else:
+        _hold = 0.0
+    if (_hold) >= HOLD_TIME:
+        drone.flight.stop()
+        print("centered")
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done
@@ -67,7 +84,7 @@ def update(drone):
 
 if __name__ == "__main__":
     _drone = drone_core.create_drone()
-    _launcher = neo_lab.Launcher(3.0)
+    _launcher = neo_lab.Launcher(4.0)
 
     def start():
         _launcher.reset()

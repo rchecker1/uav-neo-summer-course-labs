@@ -31,10 +31,12 @@ FOCAL_PX = 320.0          # focal length in pixels (~90 deg horizontal FOV, 640 
 REAL_GATE_WIDTH = 1.5     # meters: the gate's true outer width
 MIN_AREA = 400
 COL_CENTER = 320
-STOP_DIST = 2.5           # meters: stop once this close
+ROW_CENTER = 240
+STOP_DIST = 1           # meters: stop once this close
 APPROACH_PITCH = 0.15     # forward speed while approaching
 MAX_YAW = 0.2             # yaw authority to keep the gate centered
 SEARCH_YAW = 0.2          # spin slowly when no gate is seen
+mt = 0.4
 
 # -- Module-level state -----------------------------------------------------
 _done = False
@@ -62,7 +64,24 @@ def update(drone):
     # FOCAL_PX, REAL_GATE_WIDTH, and the box width (invert the Module 1 projection). Yaw to
     # keep its box centered on COL_CENTER and add APPROACH_PITCH forward. Stop and finish
     # once distance <= STOP_DIST.
-
+    img = drone.camera.get_color_image()
+    largest = neo_lab.largest_cyan_gate(img, MIN_AREA)
+    if largest is None:
+        return False
+    x,y,w,h = cv2.boundingRect(largest)
+    dist = FOCAL_PX * REAL_GATE_WIDTH / max(w,1)
+    gc = x + w/2.0
+    gr = y + h/2.0
+    ec = (gc - COL_CENTER)/COL_CENTER
+    er = (gr - 240)/240
+    yaw = uav_utils.clamp(ec * MAX_YAW, -MAX_YAW, MAX_YAW)
+    throttle = uav_utils.clamp(er * mt, -mt, mt)
+    if(dist <= STOP_DIST):
+        drone.flight.stop()
+        print(f"reached gate")  
+        _done = True
+        return True
+    drone.flight.send_pcmd(APPROACH_PITCH,0,yaw,throttle)
     ###### END PUT CODE HERE #########
     ##################################
     return _done
