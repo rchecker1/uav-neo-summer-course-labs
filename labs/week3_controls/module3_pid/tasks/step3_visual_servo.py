@@ -26,12 +26,12 @@ import neo_lab
 V_MIN = 200
 MIN_AREA = 500
 COL_CENTER = 320
-KP = 0.35
-KI = 0.0
-KD = 0.2
+KP = 0.25
+KI = 0.1
+KD = 0.03
 MAX_YAW = 0.25
 SEARCH_YAW = 0.2
-CENTER_TOL = 0.15    # normalized error considered centered
+CENTER_TOL = 0.01    # normalized error considered centered
 HOLD_TIME = 1.0
 
 # -- Module-level state -----------------------------------------------------
@@ -40,12 +40,13 @@ _prev_err = 0.0
 _target_col = None
 _hold = 0.0
 _done = False
+edf = 0.0
 
 def pid_control(err, err_int, err_dot, kp, ki, kd):
     """Return the PID controller output from the three gain terms (see README, Key terms)."""
     ##################################
     #### START PUT CODE HERE #########
-    output = 0.0
+    output = kp*err + ki*err_int + kd*err_dot
     ###### END PUT CODE HERE #########
     ##################################
     return output
@@ -63,23 +64,42 @@ def update(drone):
     global _err_int, _prev_err, _target_col, _hold, _done
     if _done:
         return True
-    ##################################
-    #### START PUT CODE HERE #########
-
-    # GOAL: yaw with a PID loop so a glowing gate stays centered in the forward
-    # camera; finish once it is centered (abs(error) < CENTER_TOL) for HOLD_TIME.
-    #
-    # Available helpers: drone.camera.get_color_image(); drone.get_delta_time();
-    #   neo_lab.gate_nearest_center(...) and neo_lab.gate_nearest_to(...) to find gates;
-    #   uav_utils.get_contour_center; uav_utils.clamp; your pid_control() above.
-    #
-    # Lock onto ONE gate (store its column in _target_col) so the target does not jump
-    # between gates. Turn the gate's horizontal offset from the image center into a
-    # normalized error, PID it to a yaw command clamped to MAX_YAW, and sweep at SEARCH_YAW
-    # when no gate is in view. See the README (Key terms) and Week 2 for finding gates.
-
-    ###### END PUT CODE HERE #########
-    ##################################
+    dt = drone.get_delta_time()
+    img = drone.camera.get_color_image()
+    if _target_col is None:
+        best =neo_lab.gate_nearest_center(img, V_MIN, MIN_AREA)
+    else:
+        best = neo_lab.gate_nearest_to(img,_target_col, V_MIN, MIN_AREA)
+        
+    if best is None:
+        drone.flight.send_pcmd(0,0,SEARCH_YAW,0)
+        _target_col = None
+        _err_int = 0.0
+        _hold = 0.0
+        return False
+    r,c = uav_utils.get_contour_center(best)
+    _target_col = c
+    e = (c - COL_CENTER)/COL_CENTER
+    _err_int = uav_utils.clamp(_err_int + e * dt,-1, 1)
+    raw_ed = (e - _prev_err)/dt if dt > 0 else 0.0
+    _prev_err = e
+    global edf
+    edf = 0.8*edf + 0.2*raw_ed
+    ed = edf
+    _prev_err = e
+    yaw = uav_utils.clamp(pid_control(e, _err_int, ed, KP, KI, KD), -MAX_YAW, MAX_YAW)
+    
+    drone.flight.send_pcmd(0,0,yaw,0)
+    if abs(e) < CENTER_TOL:
+        _hold += dt
+    else:
+        _hold = 0.0
+    if _hold > HOLD_TIME:
+        drone.flight.stop()
+        print("lock on")
+        _done = True
+    
+    
     return _done
 
 

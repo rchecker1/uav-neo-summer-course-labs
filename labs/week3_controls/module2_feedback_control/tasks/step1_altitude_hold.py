@@ -22,19 +22,25 @@ import neo_lab
 
 # -- Constants --------------------------------------------------------------
 TARGET_HEIGHT = 5.0    # meters above ground
-KP = 0.2              # throttle ~ 12 m/s per unit, so keep small
+KP = 0.9             # throttle ~ 12 m/s per unit, so keep small
+KI = 0.05
+KD = 0.2
+imax = 2.5
 THROTTLE_LIMIT = 0.5
 TOL = 0.4            # P-control leaves a small steady-state droop
-HOLD_TIME = 3.0      # seconds on target before done
+HOLD_TIME = 10.0      # seconds on target before done
+
 
 # -- Module-level state -----------------------------------------------------
 _hold = 0.0
 _done = False
+_i = 0.0
 
 def reset():
     global _hold, _done
     _hold = 0.0
     _done = False
+    _i = 0.0
 
 
 def update(drone):
@@ -51,6 +57,24 @@ def update(drone):
 
     ###### END PUT CODE HERE #########
     ##################################
+    dt = drone.get_delta_time()
+    height = neo_lab.height(drone)
+    e = TARGET_HEIGHT - height
+    global _i
+    _i = uav_utils.clamp(_i + e * dt, -imax, imax)
+    v_up = drone.physics.get_linear_velocity()[1]
+    
+    throttle = uav_utils.clamp(KP * e + KI * _i - KD * v_up, -THROTTLE_LIMIT, THROTTLE_LIMIT)
+    drone.flight.send_pcmd(0,0,0,throttle)
+    if(abs(e) <= TOL):
+        _hold += dt
+        print("holding")
+    else:
+        _hold = 0
+        
+    if(_hold > HOLD_TIME):
+        drone.flight.stop()
+        _done = True
     return _done
 
 

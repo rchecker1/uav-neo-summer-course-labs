@@ -20,8 +20,12 @@ if _d not in _sys.path:
 import neo_lab
 
 # -- Constants --------------------------------------------------------------
-SETPOINTS = [3.0, 6.0, 2.0]   # meters above ground, in order
+SETPOINTS = [9.0, 6.0, 2.0]   # meters above ground, in order
 KP = 0.2
+KI = 0.05
+KD = 0.2
+imax = 2.5
+THROTTLE_LIMIT = 0.5
 THROTTLE_LIMIT = 0.5
 TOL = 0.4
 HOLD_TIME = 2.0
@@ -30,12 +34,14 @@ HOLD_TIME = 2.0
 _index = 0
 _hold = 0.0
 _done = False
+_i = 0.0
 
 def reset():
     global _index, _hold, _done
     _index = 0
     _hold = 0.0
     _done = False
+    _i = 0.0
 
 
 def update(drone):
@@ -54,6 +60,34 @@ def update(drone):
 
     ###### END PUT CODE HERE #########
     ##################################
+    _dbg = getattr(update, "_n", 0) + 1; update._n = _dbg
+    if _dbg % 30 == 0:
+        h = neo_lab.height(drone)
+        print(f"idx={_index} target={SETPOINTS[_index] if _index<len(SETPOINTS) else 'END'} "
+              f"h={h:.2f} e={SETPOINTS[_index]-h if _index<len(SETPOINTS) else 0:.2f} hold={_hold:.1f}")
+    if(_index >= len(SETPOINTS)):
+        drone.flight.stop()
+        _done = True
+        return True
+    dt = drone.get_delta_time()
+    height = neo_lab.height(drone)
+    e = SETPOINTS[_index] - height
+    global _i
+    _i = uav_utils.clamp(_i + e * dt, -imax, imax)
+    v_up = drone.physics.get_linear_velocity()[1]
+    
+    throttle = uav_utils.clamp(KP * e + KI * _i - KD * v_up, -THROTTLE_LIMIT, THROTTLE_LIMIT)
+    drone.flight.send_pcmd(0,0,0,throttle)
+    if(abs(e) <= TOL):
+        _hold += dt
+    else:
+        _hold = 0
+        
+    if(_hold > HOLD_TIME):
+        drone.flight.stop()
+        _index += 1
+        _hold = 0.0
+        
     return _done
 
 
@@ -69,6 +103,7 @@ if __name__ == "__main__":
     def _update():
         if not _launcher.done:        # arm + climb to a safe height first
             _launcher.update(_drone)
+            print(f"launcher: done={_launcher.done} h={neo_lab.height(_drone):.2f}")
             return
         if update(_drone):
             _drone.flight.land()

@@ -21,10 +21,13 @@ def euler_to_rot(roll, pitch, yaw):
     """
     ##################################
     #### START PUT CODE HERE #########
-    R = np.eye(3)
+    x = np.array([[1,0,0],[0,np.cos(roll),-np.sin(roll)],[0,np.sin(roll),np.cos(roll)]])
+    y = np.array([[np.cos(pitch),0,np.sin(pitch)],[0,1,0],[-np.sin(pitch),0,np.cos(pitch)]])
+    z = np.array([[np.cos(yaw), -np.sin(yaw),0],[np.sin(yaw), np.cos(yaw),0],[0,0,1]])
+    
     ###### END PUT CODE HERE #########
     ##################################
-    return R
+    return z@y@x
 
 
 # ── Part A: rotation matrix -> quaternion ───────────────────────────────────────────
@@ -35,10 +38,10 @@ def rot_to_quat(R):
     """
     ##################################
     #### START PUT CODE HERE #########
-    w = 1.0
-    x = 0.0
-    y = 0.0
-    z = 0.0
+    w = 0.5 * np.sqrt(1 + R[0,0] + R[1,1] + R[2,2])
+    x = (R[2,1] - R[1,2]) / (4 * w)
+    y = (R[0,2] - R[2,0]) / (4 * w)
+    z = (R[1,0] - R[0,1]) / (4 * w)
     ###### END PUT CODE HERE #########
     ##################################
     return np.array([x, y, z, w])
@@ -53,7 +56,7 @@ def enu_to_ned(vec):
     e, n, u = vec
     ##################################
     #### START PUT CODE HERE #########
-    result = np.array([0.0, 0.0, 0.0])  # YOUR CODE HERE
+    result = np.array([n, e, -u])  # YOUR CODE HERE
     ###### END PUT CODE HERE #########
     ##################################
     return result
@@ -67,8 +70,9 @@ def thrust_allocation(mass, k_f, total_thrust):
     """
     ##################################
     #### START PUT CODE HERE #########
-    per = 0.0    # YOUR CODE HERE
-    omega = 0.0  # YOUR CODE HERE
+    per = total_thrust/4    # YOUR CODE HERE
+    omega = np.sqrt(per/k_f)  # YOUR CODE HERE
+    tpm = k_f * omega * omega
     ###### END PUT CODE HERE #########
     ##################################
     return omega, per
@@ -78,7 +82,7 @@ def hover_thrust(mass, g=9.81):
     """Total thrust (N) needed to hover (see README, Key terms)."""
     ##################################
     #### START PUT CODE HERE #########
-    return 0.0  # YOUR CODE HERE
+    return 9.81 * mass  # YOUR CODE HERE
     ###### END PUT CODE HERE #########
     ##################################
 

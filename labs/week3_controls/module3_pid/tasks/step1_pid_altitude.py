@@ -57,17 +57,23 @@ def update(drone):
     global _err_int, _prev_err, _hold, _done
     if _done:
         return True
-    ##################################
-    #### START PUT CODE HERE #########
-
-    # Implement pid_control() above, then use it to drive the drone to TARGET_HEIGHT.
-    # Track the integral of the height error (with anti-windup at INT_CLAMP) and its
-    # derivative yourself. Throttle is a vertical-velocity command; clamp it to
-    # +/-THROTTLE_LIMIT. Finish (set _done) once the height stays within TOL for
-    # HOLD_TIME. See the README (Key terms) for the PID law and anti-windup.
-
-    ###### END PUT CODE HERE #########
-    ##################################
+    dt = drone.get_delta_time()
+    h = neo_lab.height(drone)
+    e = TARGET_HEIGHT - h
+    _err_int = uav_utils.clamp(_err_int + e*dt, -INT_CLAMP, INT_CLAMP)
+    ed = (e - _prev_err)/ dt
+    _prev_err = e
+    
+    throttle = pid_control(e,_err_int,ed,KP,KI,KD)
+    throttle = uav_utils.clamp(throttle, -THROTTLE_LIMIT,THROTTLE_LIMIT)
+    drone.flight.send_pcmd(0,0,0,throttle)
+    if abs(e) <= TOL:
+        _hold += dt
+    else:
+        _hold = 0.0
+    if _hold > HOLD_TIME:
+        _done = True
+    
     return _done
 
 

@@ -60,7 +60,7 @@ def pid_control(err, err_int, err_dot, kp, ki, kd):
     """Return the PID controller output from the three gain terms (see README, Key terms)."""
     ##################################
     #### START PUT CODE HERE #########
-    output = 0.0
+    output = kp*err + ki*err_int + kd*err_dot
     ###### END PUT CODE HERE #########
     ##################################
     return output
