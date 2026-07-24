@@ -36,7 +36,8 @@ def heading_error(target, current):
     """Smallest signed angle (deg) from current heading to target, in -180..180."""
     ##################################
     #### START PUT CODE HERE #########
-    error = 0.0
+    error = target - current  + 180
+    error = error % 360 -180
     ###### END PUT CODE HERE #########
     ##################################
     return error
@@ -51,20 +52,20 @@ def update(drone):
     global _hold, _done
     if _done:
         return True
-    ##################################
-    #### START PUT CODE HERE #########
-
-    # GOAL: rotate to TARGET_HEADING and hold it within TOL for HOLD_TIME.
-    #
-    # Tools: drone.physics.get_attitude() -> (pitch, roll, yaw) deg; heading_error()
-    #        above; uav_utils.clamp(...); drone.flight.send_pcmd(0, 0, yaw, 0).
-    #
-    # Read yaw, compute the wrapped error with heading_error(), and command a yaw rate
-    # proportional to it (gain KP_YAW, clamped to MAX_YAW). Watch the sign so it turns the
-    # short way. Count HOLD_TIME of being within TOL before finishing.
-
-    ###### END PUT CODE HERE #########
-    ##################################
+    dt = drone.get_delta_time()
+    _timer += dt
+    pitch,roll,yaw = drone.physics.get_attitude()
+    e = heading_error(TARGET_HEADING, yaw)
+    yc = uav_utils.clamp(KP_YAW * e, -MAX_YAW, MAX_YAW)
+    drone.flight.send_pcmd(0,0,yc, 0)
+    if(abs(e) < TOL):
+        _hold += dt
+    else:
+        _hold = 0.0
+    if(_hold > HOLD_TIME):
+        drone.flight.stop()
+        print("done")
+        _done = True
     return _done
 
 

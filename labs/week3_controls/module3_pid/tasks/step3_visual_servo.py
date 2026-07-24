@@ -81,7 +81,7 @@ def update(drone):
     _target_col = c
     e = (c - COL_CENTER)/COL_CENTER
     _err_int = uav_utils.clamp(_err_int + e * dt,-1, 1)
-    raw_ed = (e - _prev_err)/dt if dt > 0 else 0.0
+    raw_ed = (e - _prev_err)/dt
     _prev_err = e
     global edf
     edf = 0.8*edf + 0.2*raw_ed

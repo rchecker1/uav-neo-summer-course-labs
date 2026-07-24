@@ -16,7 +16,7 @@ def p_control(y_err, kp):
     """Return the proportional control command for the given error and gain (see README, Key terms)."""
     ##################################
     #### START PUT CODE HERE #########
-    return 0.0
+    return kp * y_err
     ###### END PUT CODE HERE #########
     ##################################
 

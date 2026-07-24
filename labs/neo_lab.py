@@ -23,100 +23,85 @@ import drone_utils as uav_utils
 _ground_alt = 0.0
 
 
-# ── Gate vision ─────────────────────────────────────────────────────────────────────
-# Gates are dark frames with glowing edges — cyan on the forward camera, white on the
-# downward camera. Both read as high "Value" in HSV, so brightness is the strongest
-# gate signal.
+# ── Colored line (line follower) ─────────────────────────────────────────────────────
+# The ground line is recolored each run, but always vivid against a grey floor, so HSV
+# Saturation isolates it regardless of which color the run picked.
 
-# Cyan gate edges on the forward camera (separates from the blue background ~hue 108).
-CYAN_LOWER = np.array([80, 40, 150], dtype=np.uint8)
-CYAN_UPPER = np.array([105, 255, 255], dtype=np.uint8)
+def saturated_mask(image, s_min=100):
+    """Binary mask (0/255) of vivid colored regions by HSV Saturation. Color-agnostic,
+    so it survives the per-run recoloring of the line."""
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    return (hsv[:, :, 1] > s_min).astype(np.uint8) * 255
 
 
 def bright_mask(image, v_min=200):
-    """Binary mask (0/255) of the glowing gate edges, by HSV Value (brightness)."""
+    """Binary mask (0/255) of glowing regions by HSV Value (brightness). For a white LED
+    line on a dark floor on the real drone, where white has no saturation to key on."""
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     return (hsv[:, :, 2] > v_min).astype(np.uint8) * 255
 
 
-def largest_bright_contour(image, v_min=200, min_area=200, dilate=2):
-    """Return the largest glowing-edge contour in the image, or None."""
-    mask = bright_mask(image, v_min)
-    if dilate:
-        mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=dilate)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best, best_area = None, float(min_area)
-    for c in contours:
-        area = cv2.contourArea(c)
-        if area > best_area:
-            best, best_area = c, area
-    return best
+# ── Gate markers (ArUco) ─────────────────────────────────────────────────────────────
+# Each gate carries four DICT_6X6_250 tags, one per corner. The neon strips share the
+# sky's blue hue, so color cannot separate a gate from the background; the tags can.
+
+# One visible tag gives only a gate corner; scale its side up to a rough full-gate span.
+_GATE_SPAN_PER_TAG_SIDE = 5.0
+_gate_dict = None
 
 
-def _gate_in_mask(mask, min_area=400, max_aspect=2.5, dilate=2):
-    """
-    Largest roughly-SQUARE bright contour in a binary mask, or None.
-    Gates are square frames (aspect ~1); the long glowing boundary lines have a
-    very elongated bounding box, so an aspect-ratio test rejects them.
-    """
-    if dilate:
-        mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=dilate)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best, best_area = None, float(min_area)
-    for c in contours:
-        area = cv2.contourArea(c)
-        if area <= best_area:
-            continue
-        x, y, w, h = cv2.boundingRect(c)
-        if w == 0 or h == 0 or max(w, h) / min(w, h) > max_aspect:
-            continue                       # too elongated -> a boundary line, not a gate
-        best, best_area = c, area
-    return best
+def _gate_aruco_dict():
+    global _gate_dict
+    if _gate_dict is None:
+        _gate_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+    return _gate_dict
 
 
-def largest_gate(image, v_min=200, min_area=400, max_aspect=2.5):
-    """Largest square-ish GLOWING gate (forward: cyan / downward: white), or None."""
-    return _gate_in_mask(bright_mask(image, v_min), min_area, max_aspect)
+def _detect_gate_markers(gray):
+    try:
+        detector = cv2.aruco.ArucoDetector(_gate_aruco_dict(), cv2.aruco.DetectorParameters())
+        return detector.detectMarkers(gray)
+    except AttributeError:                   # OpenCV < 4.7 free-function API
+        # params must come from _create() here: the direct constructor segfaults detectMarkers
+        params = cv2.aruco.DetectorParameters_create()
+        return cv2.aruco.detectMarkers(gray, _gate_aruco_dict(), parameters=params)
 
 
-def largest_cyan_gate(image, min_area=400, max_aspect=2.5):
-    """Largest square-ish CYAN gate on the forward camera, or None."""
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, CYAN_LOWER, CYAN_UPPER)
-    return _gate_in_mask(mask, min_area, max_aspect)
+class Gate:
+    """A gate located from its corner ArUco tags: image center (cx, cy), inter-tag span
+    (gate size proxy), mean tag pixel size (a proximity signal that works with one tag),
+    and the decoded corner-tag ids."""
+
+    def __init__(self, cx, cy, span, tag_px, ids):
+        self.cx = cx
+        self.cy = cy
+        self.span = span
+        self.tag_px = tag_px
+        self.ids = ids
+        self.count = len(ids)
 
 
-def gate_nearest_to(image, target_col, v_min=200, min_area=500, max_aspect=2.5,
-                    dilate=2):
-    """
-    Square-ish glowing gate whose center column is closest to `target_col`, or None.
-
-    For yaw visual-servoing in a field of similar gates, picking the LARGEST gate
-    flickers between them. Track ONE gate instead: pass the previously-tracked gate's
-    column as `target_col` (start at the image center) and update it each frame. The
-    loop then locks onto a single gate and follows it as the drone turns.
-    """
-    mask = bright_mask(image, v_min)
-    if dilate:
-        mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=dilate)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best, best_dist = None, float("inf")
-    for c in contours:
-        if cv2.contourArea(c) < min_area:
-            continue
-        x, y, w, h = cv2.boundingRect(c)
-        if w == 0 or h == 0 or max(w, h) / min(w, h) > max_aspect:
-            continue
-        dist = abs((x + w / 2.0) - target_col)
-        if dist < best_dist:
-            best, best_dist = c, dist
-    return best
+def _tag_side(quad):
+    p = quad.reshape(-1, 2)
+    return float(np.linalg.norm(p[0] - p[1]))
 
 
-def gate_nearest_center(image, v_min=200, min_area=500, max_aspect=2.5, dilate=2):
-    """Square-ish gate nearest the image center (a one-shot gate_nearest_to)."""
-    return gate_nearest_to(image, image.shape[1] / 2.0, v_min, min_area,
-                           max_aspect, dilate)
+def detect_gate(image):
+    """Locate a gate by its DICT_6X6_250 corner tags on the forward camera. Returns a
+    Gate, or None when no tag is decoded. The center is the mean of the visible tags:
+    exact with all four, approximate with fewer."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    corners, ids, _ = _detect_gate_markers(gray)
+    if ids is None or len(ids) == 0:
+        return None
+    tag_centers = np.array([c.reshape(-1, 2).mean(axis=0) for c in corners])
+    cx, cy = tag_centers.mean(axis=0)
+    tag_px = float(np.mean([_tag_side(c) for c in corners]))
+    if len(tag_centers) >= 2:
+        span = max(np.linalg.norm(a - b) for a in tag_centers for b in tag_centers)
+    else:
+        span = tag_px * _GATE_SPAN_PER_TAG_SIDE
+    return Gate(float(cx), float(cy), float(span), tag_px, [int(i) for i in ids.flatten()])
 
 
 def set_ground(alt):
@@ -136,10 +121,11 @@ def height(drone):
 
 
 def world_position(drone):
-    """True world position (x_east, y_up, z_north) in meters, straight from the sim.
+    """World position (x_east, y_up, z_north) in meters.
 
-    Uses the drone's direct position readout (no drift, no GPS round-trip). Requires a
-    simulator build new enough to support it.
+    On the sim this is ground truth. On the real drone it is the flight controller's EKF
+    local position, whose origin is wherever the EKF initialized rather than a fixed world
+    origin -- so absolute values differ from the sim, but relative motion matches.
     """
     return tuple(float(v) for v in drone.physics.get_position())
 
@@ -151,7 +137,7 @@ def world_position(drone):
 # error into tilt -- the job the real flight controller does in hardware. Writing the labs
 # against send_velocity keeps the student controller identical across sim and real.
 
-REAL_MAX_SPEED = 2.0     # m/s mapped to a full normalized command; MUST match the mux config
+REAL_MAX_SPEED = 0.5     # m/s mapped to a full normalized command; MUST match mux.yaml max_speed
 _SIM_VEL_KP = 0.3        # sim inner loop: tilt per (m/s) of horizontal velocity error
 _SIM_VZ_MPS = 12.0       # sim throttle scale: ~12 m/s of vertical velocity per unit throttle
 _SIM_TILT_LIMIT = 0.5   # keep tilt gentle: the sim's attitude response is fast and high-authority
@@ -187,29 +173,54 @@ def send_velocity(drone, v_right, v_up, v_forward, yaw_rate=0.0):
         )
 
 
+_ALT_HOLD_KP = 0.6      # m/s of vertical correction per meter of altitude error (matches module3_trajectory)
+_ALT_HOLD_MAX = 1.5     # m/s cap on the altitude-hold correction
+
+
+def altitude_hold_velocity(drone, target_height):
+    """Vertical velocity (m/s) that holds `target_height` above the launch ground. Pass it
+    as the v_up argument of send_velocity, so the sim/real vertical scaling is not repeated
+    in each lab."""
+    return uav_utils.clamp(_ALT_HOLD_KP * (target_height - height(drone)),
+                           -_ALT_HOLD_MAX, _ALT_HOLD_MAX)
+
+
+# Takeoff height in meters above the ground where the program starts. Kept low for constrained
+# indoor spaces; every lab that does not pass its own height launches to this.
+DEFAULT_LAUNCH_HEIGHT = 1.0
+
+
 class Launcher:
     """
-    Arms the drone and climbs to `target_height` meters above the ground measured
-    when launching begins. Call update(drone) every frame until it returns True.
+    Arms the drone once, then climbs to `target_height` meters above the ground measured when
+    launching begins under velocity control. Call update(drone) every frame until it returns True.
 
-    Throttle is a velocity command, so the proportional gain is intentionally small.
+    takeoff() is called once to arm the motors (velocity commands alone do not arm the sim). In
+    the sim takeoff() also imparts an upward impulse, so the climb overshoots the target before
+    settling back to it -- a known sim artifact; on the real drone the velocity setpoints drive a
+    controlled OFFBOARD climb.
     """
 
-    def __init__(self, target_height=1.0, kp=0.2, throttle_limit=0.5,
-                 tol=0.4, arm_time=1.5, settle=1.0):
+    def __init__(self, target_height=DEFAULT_LAUNCH_HEIGHT, climb_kp=1.0, max_climb_speed=2.0,
+                 tol=0.25, settle=1.0):
         self.target_height = target_height
-        self.kp = kp
-        self.throttle_limit = throttle_limit
+        self.climb_kp = climb_kp
+        self.max_climb_speed = max_climb_speed
         self.tol = tol
-        self.arm_time = arm_time
         self.settle = settle
         self.reset()
 
     def reset(self):
-        self._t = 0.0
         self._hold = 0.0
         self._ground_set = False
+        self._armed = False
         self.done = False
+
+    def skip(self, drone):
+        """Mark the climb complete and run from wherever the drone already is."""
+        set_ground(drone.physics.get_altitude())
+        self._ground_set = True
+        self.done = True
 
     def update(self, drone):
         if self.done:
@@ -219,17 +230,15 @@ class Launcher:
             set_ground(drone.physics.get_altitude())
             self._ground_set = True
 
-        # Phase 1: arm the motors.
-        self._t += dt
-        if self._t < self.arm_time:
+        # Arm once (velocity commands alone do not arm the sim), then climb under velocity control.
+        if not self._armed:
             drone.flight.takeoff()
-            return False
+            self._armed = True
 
-        # Phase 2: climb to target height (throttle ~ vertical velocity).
         err = self.target_height - height(drone)
-        throttle = uav_utils.clamp(self.kp * err, -self.throttle_limit,
-                                   self.throttle_limit)
-        drone.flight.send_pcmd(0, 0, 0, throttle)
+        v_up = uav_utils.clamp(self.climb_kp * err, -self.max_climb_speed,
+                               self.max_climb_speed)
+        send_velocity(drone, 0, v_up, 0)
         self._hold = self._hold + dt if abs(err) < self.tol else 0.0
         if self._hold >= self.settle:
             drone.flight.stop()
@@ -297,28 +306,87 @@ def record(drone, **extra):
     _recorder.log(**row)
 
 
-def run_module(title, steps, launch_height=3.0):
+LED_BLINK_PERIOD_S = 0.5   # full on+off cycle of the flying indicator
+LAUNCH_SKIP_ENV = "NEO_NO_LAUNCH"
+AUTOSTART_ENV = "NEO_AUTOSTART"
+
+
+def _launch_enabled(launch):
+    if launch is not None:
+        return launch
+    return not os.environ.get(LAUNCH_SKIP_ENV, "")
+
+
+def _autostart_enabled(autostart, drone):
+    if autostart is not None:
+        return autostart
+    env = os.environ.get(AUTOSTART_ENV, "")
+    if env != "":
+        return env not in ("0", "false", "False")
+    return not _is_sim(drone)   # real drone runs controller-free; the sim waits for its start key
+
+
+def run_module(title, steps, launch_height=DEFAULT_LAUNCH_HEIGHT, autostart=None, led_color=None,
+               launch=None):
     """Standard lab orchestrator: create the drone, arm and climb, then run each step in
     order and land. `steps` is a list of (label, module) where each module has reset()
     and update(drone) -> done. Records telemetry when NEO_RECORD is set.
 
     Each lab's main.py / main_solution.py is a thin wrapper that imports its step modules
     and calls this, so the orchestration lives in one place.
+
+    autostart runs the program without the START button / a game controller (the real
+    drone's safety pilot still gates motion via OFFBOARD; stop with Ctrl-C). Left None it
+    defaults to on for the real drone and off in the simulator (which waits for its start key);
+    set NEO_AUTOSTART=1 or 0 to force it either way.
+
+    led_color, if given as an (r, g, b) tuple, blinks the LED strip while the drone is
+    flying and turns it off on landing. Leave it None to let a step drive the strip
+    itself (the shape flight holds it solid for a long exposure).
+
+    launch=False skips the arm-and-climb phase and runs the steps at whatever altitude the
+    drone is already holding, for when the safety pilot flies it up by hand. Leaving it
+    None takes the default from the NEO_NO_LAUNCH environment variable, so the whole lab
+    set can be switched over without editing each main.py.
     """
     import drone_core
     drone = drone_core.create_drone()
+    launching = _launch_enabled(launch)
     launcher = Launcher(launch_height)
     state = {"i": 0}
+    blink = {"clock": 0.0, "on": None}
 
     def start():
         state["i"] = 0
         launcher.reset()
+        blink["clock"] = 0.0
+        blink["on"] = None
         print("\n" + "=" * 56)
         print(f"  {title}")
         print("=" * 56 + "\n")
+        if not launching:
+            launcher.skip(drone)
+            steps[0][1].reset()
+            print("[launch] skipped; running at the current altitude")
+            print(f"--- {steps[0][0]} ---")
+
+    def blink_led(landing):
+        if led_color is None:
+            return
+        if landing:
+            if blink["on"] is not False:
+                blink["on"] = False
+                drone.led.off()
+            return
+        blink["clock"] += drone.get_delta_time()
+        on = (blink["clock"] % LED_BLINK_PERIOD_S) < LED_BLINK_PERIOD_S / 2.0
+        if on != blink["on"]:
+            blink["on"] = on
+            drone.led.fill(*led_color) if on else drone.led.off()
 
     def update():
         record(drone)
+        blink_led(landing=launcher.done and state["i"] >= len(steps))
         if not launcher.done:
             if launcher.update(drone):
                 steps[0][1].reset()
@@ -336,8 +404,11 @@ def run_module(title, steps, launch_height=3.0):
                 print("\n=== Module complete! Landing... ===")
 
     def update_slow():
-        if launcher.done and state["i"] < len(steps):
+        if not launcher.done:
+            waiting = "" if _is_sim(drone) else "  (waiting: safety pilot must arm + OFFBOARD)"
+            print(f"[launch] climbing to {launch_height:.1f}m, height={height(drone):.2f}m{waiting}")
+        elif state["i"] < len(steps):
             print(f"[{steps[state['i']][0]}] height={height(drone):.2f}m")
 
     drone.set_start_update(start, update, update_slow)
-    drone.go()
+    drone.go(_autostart_enabled(autostart, drone))
