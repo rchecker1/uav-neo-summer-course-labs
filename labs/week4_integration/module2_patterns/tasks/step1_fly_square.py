@@ -10,6 +10,7 @@ to the next corner when you reach the current one.
 
 import drone_core
 import drone_utils as uav_utils
+import numpy as np
 
 # -- Course setup: makes the shared `neo_lab` helper importable.
 #    You don't need to read or change this block. --
@@ -39,6 +40,7 @@ _x = 0.0
 _z = 0.0
 _wp = 0
 _done = False
+ind = 0
 
 def reset():
     global _x, _z, _wp, _done
@@ -46,28 +48,33 @@ def reset():
     _z = 0.0
     _wp = 0
     _done = False
+    ind = 0
 
 
 def update(drone):
     global _x, _z, _wp, _done
     if _done:
         return True
-    ##################################
-    #### START PUT CODE HERE #########
-
-    # GOAL: visit each corner in WAYPOINTS in order, then finish.
-    #
-    # Tools: drone.physics.get_linear_velocity(); drone.get_delta_time();
-    #        neo_lab.height(drone); uav_utils.clamp(...); drone.flight.send_pcmd(...).
-    #
-    # Integrate vx, vz into (_x, _z) like Module 1. If _wp has passed the last
-    # waypoint, stop and finish. Otherwise steer toward WAYPOINTS[_wp] with the same
-    # PD command per axis (roll for right, pitch for forward, throttle for height).
-    # When you are within WP_TOL of the current corner on both axes, advance _wp += 1.
-
-    ###### END PUT CODE HERE #########
-    ##################################
-    return _done
+    if _wp >= len(WAYPOINTS):
+        drone.flight.stop()
+        print("done")
+        _done = True
+        return True
+    curr = WAYPOINTS[_wp]
+    dt = drone.get_delta_time()
+    vx, vy, vz = drone.physics.get_linear_velocity()
+    _x += dt * vx
+    _z += dt * vz
+    xe = curr[0] - _x
+    ze = curr[1] - _z
+    roll     = uav_utils.clamp(KP_POS*xe - KD_POS*vx, -ROLL_LIMIT, ROLL_LIMIT)
+    pitch    = uav_utils.clamp(KP_POS*ze - KD_POS*vz, -PITCH_LIMIT, PITCH_LIMIT)
+    throttle = uav_utils.clamp(ALT_KP*(TARGET_HEIGHT - neo_lab.height(drone)), -THROTTLE_LIMIT, THROTTLE_LIMIT)
+    drone.flight.send_pcmd(pitch, roll, 0, throttle)
+    if abs(xe) < WP_TOL and abs(ze) < WP_TOL:
+        print(f"corner {_wp} reached")
+        _wp += 1
+    return False
 
 
 if __name__ == "__main__":
@@ -80,7 +87,7 @@ if __name__ == "__main__":
         print("Step 1: Fly a Square")
 
     def _update():
-        if not _launcher.done:        # arm + climb to a safe height first
+        if not _launcher.done:
             _launcher.update(_drone)
             return
         if update(_drone):

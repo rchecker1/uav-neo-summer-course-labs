@@ -35,7 +35,7 @@ _x = 0.0
 _z = 0.0
 _max_err = 0.0
 _done = False
-
+import numpy as np
 
 def trajectory(t):
     """Desired (right, forward) position and velocity at time t along the segment.
@@ -73,29 +73,15 @@ def update(drone):
     _x += vx * dt
     _z += vz * dt
     pos_r, pos_f, vel_r, vel_f = trajectory(_t)
-    ##################################
-    #### START PUT CODE HERE #########
-
-    # GOAL: keep the drone on the moving target (pos_r, pos_f) by commanding a VELOCITY.
-    #
-    # For each horizontal axis, the velocity you command is the trajectory's own velocity
-    # (feedforward) plus a correction that closes any position gap:
-    #   v_right   = vel_r + KP_POS * (pos_r - _x)
-    #   v_forward = vel_f + KP_POS * (pos_f - _z)
-    # For height, turn the altitude error into a vertical velocity:
-    #   v_up = ALT_KP * (TARGET_HEIGHT - neo_lab.height(drone))
-    # Then send all three at once with neo_lab.send_velocity(drone, v_right, v_up, v_forward).
-    # (send_velocity commands velocity in m/s -- the same call works on the real drone. See
-    # the README, "Commanding velocity.")
-
-    ###### END PUT CODE HERE #########
-    ##################################
-    err = ((pos_r - _x) ** 2 + (pos_f - _z) ** 2) ** 0.5
+    vr = vel_r + KP_POS * (pos_r - _x)
+    vf = vel_f + KP_POS * (pos_f - _z)
+    vu = ALT_KP * (TARGET_HEIGHT - neo_lab.height(drone))
+    neo_lab.send_velocity(drone, vr, vu, vf)
+    err = np.sqrt((pos_r - _x)**2 + (pos_f - _z)**2)
     _max_err = max(_max_err, err)
     if _t >= DURATION:
         drone.flight.stop()
-        print(f"[Step 1] Segment done: right={_x:.2f} forward={_z:.2f} m, "
-              f"max tracking error {_max_err:.2f} m")
+        print(f"done {_x} {_z} {_max_err}")
         _done = True
     return _done
 

@@ -9,6 +9,7 @@ forward, throttle for up.
 """
 
 import drone_core
+import numpy as np
 import drone_utils as uav_utils
 
 # -- Course setup: makes the shared `neo_lab` helper importable.
@@ -69,6 +70,28 @@ def update(drone):
 
     ###### END PUT CODE HERE #########
     ##################################
+    dt = drone.get_delta_time()
+    vx = drone.physics.get_linear_velocity()[0]
+    vy= drone.physics.get_linear_velocity()[1]
+    vz = drone.physics.get_linear_velocity()[2]
+    _x += dt * vx
+    _z += dt * vz
+    ze = TARGET_FWD - _z
+    xe = TARGET_RIGHT - _x
+    roll = uav_utils.clamp(xe * KP_POS - KD_POS * vx, -ROLL_LIMIT, ROLL_LIMIT)
+    pitch = uav_utils.clamp(ze * KP_POS - KD_POS * vz, -PITCH_LIMIT, PITCH_LIMIT)
+    throttle = uav_utils.clamp(ALT_KP * (TARGET_HEIGHT - neo_lab.height(drone)), -THROTTLE_LIMIT, THROTTLE_LIMIT)
+    drone.flight.send_pcmd(pitch,roll,0,throttle)
+    speed = np.sqrt(vx * vx + vz * vz)
+    if abs(ze) < POS_TOL and abs(xe) < POS_TOL and speed < SETTLE_SPEED:
+            _hold += dt
+    else:
+        _hold = 0.0
+    if(_hold >= HOLD_TIME):
+        drone.flight.stop()
+        print("done")
+        _done = True
+    
     return _done
 
 

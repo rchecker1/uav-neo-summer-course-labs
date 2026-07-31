@@ -114,6 +114,10 @@ def update(drone):
 
     ###### END PUT CODE HERE #########
     ##################################
+    vr = vel_r + KP_POS * (pos_r - _x)
+    vf = vel_f + KP_POS * (pos_f - _z)
+    vu = ALT_KP * (TARGET_HEIGHT - neo_lab.height(drone))
+    neo_lab.send_velocity(drone, vr, vu, vf)
     radial = ((_x - CENTER_RIGHT) ** 2 + (_z - CENTER_FWD) ** 2) ** 0.5
     _max_radial_err = max(_max_radial_err, abs(radial - RADIUS))
     if _t >= DURATION:

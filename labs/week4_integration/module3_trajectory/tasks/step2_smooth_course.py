@@ -64,16 +64,13 @@ _TAN_FWD = _tangents(_FWD)
 
 
 def hermite(p0, m0, p1, m1, s):
-    """Cubic Hermite blend at fraction s in [0,1] between p0 (tangent m0) and p1 (tangent m1)."""
-    ##################################
-    #### START PUT CODE HERE #########
-    # Combine the four Hermite basis functions of s with p0, m0, p1, m1 to return one
-    # blended value. See the README ("Building a smooth path") for the four basis
-    # functions h00, h10, h01, h11 and how they weight the endpoints and tangents.
-    result = p0
-    ###### END PUT CODE HERE #########
-    ##################################
-    return result
+    s2 = s*s
+    s3 = s2*s
+    h00 = 2 * s3 - 3* s2 + 1
+    h10 = s3 - 2* s2 + s
+    h01 = -2 *s3 + 3 *s2
+    h11 = s3 - s2
+    return h00 *p0 + h10* m0 + h01* p1 + h11 *m1
 
 
 def path_position(t):
